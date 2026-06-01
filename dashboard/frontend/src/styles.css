@@ -1,0 +1,270 @@
+:root {
+  color: #f7f7f2;
+  background: #101316;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(135deg, rgba(38, 166, 154, 0.18), transparent 30%),
+    linear-gradient(225deg, rgba(255, 159, 67, 0.12), transparent 34%),
+    #101316;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+
+.header-band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #77d7cb;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2.15rem, 6vw, 4.8rem);
+  line-height: 0.96;
+}
+
+h2 {
+  font-size: 1rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 148px;
+  min-height: 48px;
+  gap: 9px;
+  border-radius: 8px;
+  font-weight: 900;
+}
+
+.status-pill.normal {
+  background: #cde77f;
+  color: #1d2b0f;
+}
+
+.status-pill.critical {
+  background: #ffad99;
+  color: #5e140c;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.vital-card,
+.control-panel,
+.telemetry-panel {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.22);
+}
+
+.vital-card {
+  min-height: 170px;
+  padding: 22px;
+}
+
+.vital-label,
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #bfc9c6;
+  font-weight: 750;
+}
+
+.vital-card strong {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 36px;
+  font-size: clamp(3rem, 9vw, 5rem);
+  line-height: 0.9;
+}
+
+.vital-card small {
+  color: #cfd7d4;
+  font-size: 1.35rem;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 14px;
+}
+
+.control-panel,
+.telemetry-panel {
+  padding: 20px;
+}
+
+.panel-title {
+  margin-bottom: 18px;
+  color: #f7f7f2;
+}
+
+.range-control {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.range-control span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: #cfd7d4;
+}
+
+.range-control strong {
+  color: #ffffff;
+  font-size: 1.05rem;
+}
+
+.range-control input {
+  width: 100%;
+  accent-color: #26a69a;
+}
+
+.button-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #e7eef0;
+  color: #172023;
+  cursor: pointer;
+  font-weight: 850;
+}
+
+button:hover {
+  background: #ffffff;
+}
+
+button.warning {
+  background: #ffd166;
+  color: #3b2b00;
+}
+
+button.danger {
+  background: #ff6b6b;
+  color: #350506;
+}
+
+dl {
+  display: grid;
+  gap: 13px;
+  margin: 0;
+}
+
+dl div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 12px;
+}
+
+dt {
+  color: #aebbb7;
+}
+
+dd {
+  margin: 0;
+  color: #ffffff;
+  font-weight: 800;
+  text-align: right;
+}
+
+dd.online {
+  color: #77d7cb;
+}
+
+dd.offline {
+  color: #ffad99;
+}
+
+.message {
+  min-height: 42px;
+  margin: 18px 0 0;
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(119, 215, 203, 0.12);
+  color: #dff8f4;
+  font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .header-band,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .header-band {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .overview-grid,
+  .button-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vital-card {
+    min-height: 142px;
+  }
+}

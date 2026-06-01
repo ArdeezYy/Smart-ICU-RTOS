@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
 
@@ -18,7 +19,7 @@ const char *ssid = "Wokwi-GUEST";
 const char *password = "";
 
 // Change this to your local Flask server IP or an ngrok URL.
-const char *serverName = "http://192.168.1.10:5000/data";
+const char *serverBaseUrl = "http://192.168.1.10:5000";
 
 // =====================================================
 // PIN CONFIG
@@ -43,6 +44,7 @@ constexpr TickType_t SPO2_PERIOD_TICKS = pdMS_TO_TICKS(100);
 constexpr TickType_t TEMP_PERIOD_TICKS = pdMS_TO_TICKS(150);
 constexpr TickType_t MONITOR_PERIOD_TICKS = pdMS_TO_TICKS(500);
 constexpr TickType_t WIFI_PERIOD_TICKS = pdMS_TO_TICKS(2000);
+constexpr TickType_t COMMAND_PERIOD_TICKS = pdMS_TO_TICKS(750);
 constexpr TickType_t EMERGENCY_ALARM_TICKS = pdMS_TO_TICKS(3000);
 
 // =====================================================
@@ -56,11 +58,21 @@ typedef struct {
   char status[20];
 } PatientData;
 
+typedef struct {
+  char mode[10];
+  int bpm;
+  float temp;
+  int spo2;
+  bool emergency;
+  char alarmOverride[10];
+} ControlCommand;
+
 // =====================================================
 // GLOBAL VARIABLES
 // =====================================================
 
 PatientData patient = {0, 0.0f, 0, "NORMAL"};
+ControlCommand controlCommand = {"sensor", 90, 36.8f, 97, false, "auto"};
 
 QueueHandle_t patientQueue;
 SemaphoreHandle_t dataMutex;
@@ -71,6 +83,7 @@ TaskHandle_t temperatureTaskHandle;
 TaskHandle_t oxygenTaskHandle;
 TaskHandle_t alarmTaskHandle;
 TaskHandle_t wifiTaskHandle;
+TaskHandle_t commandTaskHandle;
 TaskHandle_t monitoringTaskHandle;
 
 #if ENABLE_ADVANCED_RTOS_DEMO
@@ -101,6 +114,14 @@ void setAlarmOutput(bool active) {
   ledcWriteTone(0, active ? 1000 : 0);
 }
 
+bool isWebControlMode() {
+  return strcmp(controlCommand.mode, "web") == 0;
+}
+
+bool isCriticalValue(int bpm, float temp, int spo2) {
+  return bpm > 130 || temp > 38.0f || spo2 < 90;
+}
+
 void printStackWatermark(const char *taskName, TaskHandle_t handle) {
   Serial.print(taskName);
   Serial.print(" stack high-water mark: ");
@@ -126,7 +147,9 @@ void HeartRateTask(void *pvParameters) {
 
   while (1) {
     if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {
-      patient.bpm = map(analogRead(BPM_PIN), 0, 4095, 60, 150);
+      if (!isWebControlMode()) {
+        patient.bpm = map(analogRead(BPM_PIN), 0, 4095, 60, 150);
+      }
       publishPatientSnapshot();
       xSemaphoreGive(dataMutex);
     }
@@ -140,7 +163,9 @@ void TemperatureTask(void *pvParameters) {
 
   while (1) {
     if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {
-      patient.temp = mapFloat(analogRead(TEMP_PIN), 0, 4095, 35.0f, 40.0f);
+      if (!isWebControlMode()) {
+        patient.temp = mapFloat(analogRead(TEMP_PIN), 0, 4095, 35.0f, 40.0f);
+      }
       publishPatientSnapshot();
       xSemaphoreGive(dataMutex);
     }
@@ -154,7 +179,9 @@ void OxygenTask(void *pvParameters) {
 
   while (1) {
     if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {
-      patient.spo2 = map(analogRead(SPO2_PIN), 0, 4095, 85, 100);
+      if (!isWebControlMode()) {
+        patient.spo2 = map(analogRead(SPO2_PIN), 0, 4095, 85, 100);
+      }
       publishPatientSnapshot();
       xSemaphoreGive(dataMutex);
     }
@@ -181,10 +208,18 @@ void AlarmTask(void *pvParameters) {
     bool alarmActive = false;
 
     if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {
-      bool critical = patient.bpm > 130 || patient.temp > 38.0f || patient.spo2 < 90;
+      bool critical = isCriticalValue(patient.bpm, patient.temp, patient.spo2);
       bool emergencyActive = now < emergencyActiveUntil;
+      bool webEmergencyActive = controlCommand.emergency;
 
-      alarmActive = critical || emergencyActive;
+      if (strcmp(controlCommand.alarmOverride, "on") == 0) {
+        alarmActive = true;
+      } else if (strcmp(controlCommand.alarmOverride, "off") == 0) {
+        alarmActive = false;
+      } else {
+        alarmActive = critical || emergencyActive || webEmergencyActive;
+      }
+
       strcpy(patient.status, alarmActive ? "CRITICAL" : "NORMAL");
       publishPatientSnapshot();
 
@@ -222,11 +257,13 @@ void WiFiTask(void *pvParameters) {
       jsonData += "\"bpm\":" + String(snapshot.bpm) + ",";
       jsonData += "\"temp\":" + String(snapshot.temp, 2) + ",";
       jsonData += "\"spo2\":" + String(snapshot.spo2) + ",";
-      jsonData += "\"status\":\"" + String(snapshot.status) + "\"";
+      jsonData += "\"status\":\"" + String(snapshot.status) + "\",";
+      jsonData += "\"source\":\"esp32\"";
       jsonData += "}";
 
       HTTPClient http;
-      http.begin(serverName);
+      String dataUrl = String(serverBaseUrl) + "/data";
+      http.begin(dataUrl);
       http.addHeader("Content-Type", "application/json");
       http.setTimeout(1000);
 
@@ -239,6 +276,68 @@ void WiFiTask(void *pvParameters) {
     }
 
     vTaskDelayUntil(&lastWakeTime, WIFI_PERIOD_TICKS);
+  }
+}
+
+// =====================================================
+// COMMAND TASK
+// =====================================================
+
+void CommandTask(void *pvParameters) {
+  TickType_t lastWakeTime = xTaskGetTickCount();
+
+  while (1) {
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      String commandUrl = String(serverBaseUrl) + "/command";
+      http.begin(commandUrl);
+      http.setTimeout(1000);
+
+      int httpCode = http.GET();
+      if (httpCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, response);
+
+        if (!error && xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {
+          strlcpy(controlCommand.mode, doc["mode"] | "sensor", sizeof(controlCommand.mode));
+          controlCommand.bpm = doc["bpm"] | 90;
+          controlCommand.temp = doc["temp"] | 36.8f;
+          controlCommand.spo2 = doc["spo2"] | 97;
+          controlCommand.emergency = doc["emergency"] | false;
+          strlcpy(controlCommand.alarmOverride, doc["alarm_override"] | "auto", sizeof(controlCommand.alarmOverride));
+
+          if (isWebControlMode()) {
+            patient.bpm = controlCommand.bpm;
+            patient.temp = controlCommand.temp;
+            patient.spo2 = controlCommand.spo2;
+            strcpy(patient.status, isCriticalValue(patient.bpm, patient.temp, patient.spo2) || controlCommand.emergency ? "CRITICAL" : "NORMAL");
+            publishPatientSnapshot();
+          }
+
+          Serial.print("[CommandTask] mode=");
+          Serial.print(controlCommand.mode);
+          Serial.print(" bpm=");
+          Serial.print(controlCommand.bpm);
+          Serial.print(" temp=");
+          Serial.print(controlCommand.temp);
+          Serial.print(" spo2=");
+          Serial.print(controlCommand.spo2);
+          Serial.print(" emergency=");
+          Serial.println(controlCommand.emergency ? "true" : "false");
+
+          xSemaphoreGive(dataMutex);
+        } else if (error) {
+          Serial.println("[CommandTask] Failed to parse command JSON");
+        }
+      } else {
+        Serial.println("[CommandTask] Command endpoint unavailable");
+      }
+
+      http.end();
+    }
+
+    vTaskDelayUntil(&lastWakeTime, COMMAND_PERIOD_TICKS);
   }
 }
 
@@ -275,6 +374,7 @@ void MonitoringTask(void *pvParameters) {
       printStackWatermark("OxygenTask", oxygenTaskHandle);
       printStackWatermark("AlarmTask", alarmTaskHandle);
       printStackWatermark("WiFiTask", wifiTaskHandle);
+      printStackWatermark("CommandTask", commandTaskHandle);
       printStackWatermark("MonitoringTask", monitoringTaskHandle);
     }
 
@@ -399,6 +499,7 @@ void setup() {
   xTaskCreate(OxygenTask, "OxygenTask", 2048, NULL, 4, &oxygenTaskHandle);
   xTaskCreate(AlarmTask, "AlarmTask", 4096, NULL, 5, &alarmTaskHandle);
   xTaskCreate(WiFiTask, "WiFiTask", 8192, NULL, 2, &wifiTaskHandle);
+  xTaskCreate(CommandTask, "CommandTask", 6144, NULL, 2, &commandTaskHandle);
   xTaskCreate(MonitoringTask, "MonitoringTask", 3072, NULL, 1, &monitoringTaskHandle);
 
 #if ENABLE_ADVANCED_RTOS_DEMO

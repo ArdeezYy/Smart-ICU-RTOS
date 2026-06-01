@@ -50,7 +50,8 @@
     async function updateData() {
       try {
         const response = await fetch("/latest");
-        const data = await response.json();
+        const payload = await response.json();
+        const data = payload.patient ?? payload;
         const status = String(data.status || "NORMAL").toUpperCase();
 
         document.getElementById("bpm").innerText = data.bpm ?? 0;

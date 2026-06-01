@@ -1,6 +1,6 @@
 # Smart ICU RTOS
 
-Smart ICU Patient Monitoring System using ESP32, FreeRTOS, Wokwi, and a Flask dashboard.
+Smart ICU Patient Monitoring System using ESP32, FreeRTOS, Wokwi, Flask, and a React dashboard.
 
 The project simulates an ICU monitor that reads heart rate, body temperature, and SpO2 from virtual potentiometers. A high-priority alarm task drives a local LED and buzzer when vital signs are critical or when the emergency button interrupt is triggered. Patient data is also posted to a web dashboard through HTTP.
 
@@ -10,7 +10,7 @@ The project simulates an ICU monitor that reads heart rate, body temperature, an
 - Rate-monotonic-style priorities: the 50 ms alarm task has the highest priority.
 - Queue, mutex, binary semaphore, ISR deferred processing, and stack high-water mark logging.
 - Optional advanced RTOS demo for deadlock prevention, priority inversion, and protected counter access.
-- Flask dashboard with `/data` and `/latest` JSON endpoints.
+- React dashboard served by Flask with `/data`, `/latest`, `/control`, and `/command` JSON endpoints.
 
 ## Pin Mapping
 
@@ -42,32 +42,54 @@ ESP32 sends this payload to `POST /data`:
 {"bpm": 120, "temp": 37.5, "spo2": 96, "status": "NORMAL"}
 ```
 
-The dashboard exposes the latest data at `GET /latest`.
+The dashboard exposes the latest data and active command at `GET /latest`.
+
+React sends ESP32 control commands to `POST /control`:
+
+```json
+{
+  "mode": "web",
+  "bpm": 90,
+  "temp": 36.8,
+  "spo2": 97,
+  "emergency": false,
+  "alarm_override": "auto"
+}
+```
+
+ESP32 polls the active command from `GET /command`.
+
+Control modes:
+
+- `web`: ESP32 uses BPM, temperature, and SpO2 values from the dashboard.
+- `sensor`: ESP32 returns to Wokwi potentiometer input.
 
 ## Run The Dashboard
 
 ```powershell
-cd dashboard
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+cd dashboard/frontend
+npm install
+npm run build
+cd ..
 python app.py
 ```
 
 Open `http://localhost:5000`.
 
+For quick backend-only testing without the React build, Flask falls back to the simple HTML template.
+
 ## Configure ESP32 HTTP Endpoint
 
-Edit `serverName` in `src/main.cpp`:
+Edit `serverBaseUrl` in `src/main.cpp`:
 
 ```cpp
-const char *serverName = "http://YOUR_SERVER_IP:5000/data";
+const char *serverBaseUrl = "http://YOUR_SERVER_IP:5000";
 ```
 
 For Wokwi, use an address reachable from the simulator, such as an ngrok URL:
 
 ```cpp
-const char *serverName = "https://YOUR-NGROK-URL.ngrok-free.app/data";
+const char *serverBaseUrl = "https://YOUR-NGROK-URL.ngrok-free.app";
 ```
 
 ## Build Firmware
@@ -75,6 +97,18 @@ const char *serverName = "https://YOUR-NGROK-URL.ngrok-free.app/data";
 ```powershell
 C:\Users\ardik\.platformio\penv\Scripts\platformio.exe run
 ```
+
+## Development Notes
+
+Run the React dev server only while editing the dashboard:
+
+```powershell
+cd dashboard
+cd frontend
+npm run dev
+```
+
+The dev server proxies API calls to Flask on port 5000.
 
 ## Advanced RTOS Demo
 

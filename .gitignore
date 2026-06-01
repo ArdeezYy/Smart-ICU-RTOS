@@ -5,5 +5,7 @@
 .vscode/ipch
 dashboard/.venv/
 dashboard/__pycache__/
+dashboard/frontend/node_modules/
+dashboard/frontend/dist/
 *.pyc
 *.log
