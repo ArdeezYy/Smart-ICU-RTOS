@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart ICU Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="dashboard">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">ESP32 + FreeRTOS</p>
+        <h1>Smart ICU Monitor</h1>
+      </div>
+      <div id="statusBadge" class="status-badge normal">NORMAL</div>
+    </header>
+
+    <section class="vitals" aria-label="Patient vitals">
+      <article class="vital-card">
+        <span class="label">BPM</span>
+        <strong id="bpm">0</strong>
+      </article>
+
+      <article class="vital-card">
+        <span class="label">Temperature</span>
+        <strong><span id="temp">0.0</span><small> C</small></strong>
+      </article>
+
+      <article class="vital-card">
+        <span class="label">SpO2</span>
+        <strong><span id="spo2">0</span><small>%</small></strong>
+      </article>
+    </section>
+
+    <section class="status-panel">
+      <span>Last update</span>
+      <strong id="updatedAt">Waiting for data</strong>
+    </section>
+  </main>
+
+  <script>
+    const statusBadge = document.getElementById("statusBadge");
+
+    function formatUpdatedAt(value) {
+      if (!value) return "Waiting for data";
+      return new Date(value).toLocaleString();
+    }
+
+    async function updateData() {
+      try {
+        const response = await fetch("/latest");
+        const data = await response.json();
+        const status = String(data.status || "NORMAL").toUpperCase();
+
+        document.getElementById("bpm").innerText = data.bpm ?? 0;
+        document.getElementById("temp").innerText = Number(data.temp ?? 0).toFixed(1);
+        document.getElementById("spo2").innerText = data.spo2 ?? 0;
+        document.getElementById("updatedAt").innerText = formatUpdatedAt(data.updated_at);
+
+        statusBadge.innerText = status;
+        statusBadge.className = `status-badge ${status === "CRITICAL" ? "critical" : "normal"}`;
+      } catch (error) {
+        statusBadge.innerText = "OFFLINE";
+        statusBadge.className = "status-badge offline";
+        console.error(error);
+      }
+    }
+
+    setInterval(updateData, 1000);
+    updateData();
+  </script>
+</body>
+</html>
