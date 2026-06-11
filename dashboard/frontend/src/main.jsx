@@ -71,6 +71,7 @@ function App() {
   });
   const [command, setCommand] = useState(sensorCommand);
   const [draft, setDraft] = useState(normalCommand);
+  const [draftDirty, setDraftDirty] = useState(false);
   const [connection, setConnection] = useState("connecting");
   const [message, setMessage] = useState("Ready");
 
@@ -83,14 +84,16 @@ function App() {
       setPatient(data.patient ?? data);
       if (data.command) {
         setCommand(data.command);
-        setDraft({
-          mode: data.command.mode,
-          bpm: data.command.bpm,
-          temp: data.command.temp,
-          spo2: data.command.spo2,
-          emergency: data.command.emergency,
-          alarm_override: data.command.alarm_override
-        });
+        if (!draftDirty) {
+          setDraft({
+            mode: data.command.mode,
+            bpm: data.command.bpm,
+            temp: data.command.temp,
+            spo2: data.command.spo2,
+            emergency: data.command.emergency,
+            alarm_override: data.command.alarm_override
+          });
+        }
       }
       setConnection("online");
     } catch (error) {
@@ -111,6 +114,7 @@ function App() {
         emergency: response.command.emergency,
         alarm_override: response.command.alarm_override
       });
+      setDraftDirty(false);
       setMessage(successMessage);
       await refreshLatest();
     } catch (error) {
@@ -130,6 +134,7 @@ function App() {
         emergency: response.command.emergency,
         alarm_override: response.command.alarm_override
       });
+      setDraftDirty(false);
       setMessage("Alarm reset to normal values");
       await refreshLatest();
     } catch (error) {
@@ -138,6 +143,7 @@ function App() {
   }
 
   function updateDraft(field, value) {
+    setDraftDirty(true);
     setDraft((current) => ({
       ...current,
       mode: "web",
@@ -149,7 +155,7 @@ function App() {
     refreshLatest();
     const interval = window.setInterval(refreshLatest, 1000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [draftDirty]);
 
   const statusClass = effectiveStatus === "CRITICAL" ? "critical" : "normal";
   const connectionLabel = connection === "online" ? "Online" : connection === "offline" ? "Offline" : "Connecting";

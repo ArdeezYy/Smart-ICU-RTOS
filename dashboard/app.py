@@ -55,9 +55,15 @@ def utc_now():
 def calculate_status(bpm, temp, spo2, emergency=False, alarm_override="auto"):
     if alarm_override == "on" or emergency:
         return "CRITICAL"
-    if alarm_override == "off":
-        return "NORMAL"
     return "CRITICAL" if bpm > 130 or temp > 38.0 or spo2 < 90 else "NORMAL"
+
+
+def parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def sanitize_patient_payload(payload):
@@ -90,7 +96,7 @@ def sanitize_command_payload(payload):
             "bpm": int(payload.get("bpm", NORMAL_COMMAND["bpm"])),
             "temp": float(payload.get("temp", NORMAL_COMMAND["temp"])),
             "spo2": int(payload.get("spo2", NORMAL_COMMAND["spo2"])),
-            "emergency": bool(payload.get("emergency", False)),
+            "emergency": parse_bool(payload.get("emergency", False)),
             "alarm_override": alarm_override,
             "updated_at": utc_now(),
         }

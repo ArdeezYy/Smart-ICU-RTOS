@@ -122,6 +122,14 @@ bool isCriticalValue(int bpm, float temp, int spo2) {
   return bpm > 130 || temp > 38.0f || spo2 < 90;
 }
 
+bool shouldAlarmBeActive(bool localEmergencyActive = false) {
+  if (strcmp(controlCommand.alarmOverride, "on") == 0 || controlCommand.emergency) {
+    return true;
+  }
+
+  return isCriticalValue(patient.bpm, patient.temp, patient.spo2) || localEmergencyActive;
+}
+
 void printStackWatermark(const char *taskName, TaskHandle_t handle) {
   Serial.print(taskName);
   Serial.print(" stack high-water mark: ");
@@ -208,17 +216,8 @@ void AlarmTask(void *pvParameters) {
     bool alarmActive = false;
 
     if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {
-      bool critical = isCriticalValue(patient.bpm, patient.temp, patient.spo2);
       bool emergencyActive = now < emergencyActiveUntil;
-      bool webEmergencyActive = controlCommand.emergency;
-
-      if (strcmp(controlCommand.alarmOverride, "on") == 0) {
-        alarmActive = true;
-      } else if (strcmp(controlCommand.alarmOverride, "off") == 0) {
-        alarmActive = false;
-      } else {
-        alarmActive = critical || emergencyActive || webEmergencyActive;
-      }
+      alarmActive = shouldAlarmBeActive(emergencyActive);
 
       strcpy(patient.status, alarmActive ? "CRITICAL" : "NORMAL");
       publishPatientSnapshot();
@@ -311,7 +310,7 @@ void CommandTask(void *pvParameters) {
             patient.bpm = controlCommand.bpm;
             patient.temp = controlCommand.temp;
             patient.spo2 = controlCommand.spo2;
-            strcpy(patient.status, isCriticalValue(patient.bpm, patient.temp, patient.spo2) || controlCommand.emergency ? "CRITICAL" : "NORMAL");
+            strcpy(patient.status, shouldAlarmBeActive() ? "CRITICAL" : "NORMAL");
             publishPatientSnapshot();
           }
 
