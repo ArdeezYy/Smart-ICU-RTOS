@@ -7,5 +7,9 @@ dashboard/.venv/
 dashboard/__pycache__/
 dashboard/frontend/node_modules/
 dashboard/frontend/dist/
+dashboard/flask-*.log
+dashboard/flask-*.err.log
 *.pyc
 *.log
+*.DS_Store
+Thumbs.db
