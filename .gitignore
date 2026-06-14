@@ -13,3 +13,4 @@ dashboard/flask-*.err.log
 *.log
 *.DS_Store
 Thumbs.db
+.vscode/
