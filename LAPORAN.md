@@ -18,9 +18,8 @@ Kode Mata Kuliah: CLO3 — Safety-Critical Systems
 | No | Nama Lengkap | NIM |
 |----|-------------|-----|
 | 1 | Nicholai Dandy Nainggolan | 101032330023 |
-| 2 | Muhammad Deva Valery | 10103233[NNNN] |
+| 2 | Muhammad Deva Valery | 101032300115] |
 | 3 | Ardika Putra Hadian | 101032300240 |
-| 4 | [ Nama Lengkap ] | [ NIM ] |
 
 ---
 
