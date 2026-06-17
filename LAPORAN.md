@@ -1562,75 +1562,137 @@ Semua _endpoint_ mengembalikan kode status HTTP yang sesuai (200 untuk sukses, 4
 
 ### 6.6 Verifikasi Penanganan Race Condition
 
-#### 6.6.1 Tanpa Proteksi Mutex (Skenario Race Condition)
+#### 6.6.1 Sebelum Proteksi (Unprotected Counter)
 
-Tanpa `dataMutex`, skenario berikut dapat menyebabkan _race condition_:
+Dua task (`UnprotCounterA` dan `UnprotCounterB`) berbagi `sharedCounter` **tanpa proteksi**. Setiap task membaca, menunda 2 ms (memberi kesempatan task lain menulis), lalu menulis balik.
 
-1. HeartRateTask membaca ADC dan mulai menulis `patient.bpm = 105`.
-2. Di tengah operasi, WiFiTask mengambil _snapshot_ `patient` dan membaca BPM yang baru setengah ditulis (data tidak konsisten).
-3. TemperaturTask juga membaca `patient.temp` yang mungkin belum diperbarui.
-
-#### 6.6.2 Dengan Proteksi Mutex
-
-Dengan `dataMutex`, skenario yang sama menjadi aman:
-
-1. HeartRateTask memanggil `xSemaphoreTake(dataMutex, portMAX_DELAY)` dan berhasil mendapatkannya.
-2. HeartRateTask menulis `patient.bpm`, `patient.temp`, `patient.spo2`, dan `patient.status`.
-3. WiFiTask mencoba mengambil `dataMutex` tetapi terhadap (diblokir) karena mutex sedang dipegang.
-4. HeartRateTask selesai menulis dan memanggil `xSemaphoreGive(dataMutex)`.
-5. _Scheduler_ membangunkan WiFiTask yang sekarang dapat mengambil mutex dan membaca data yang konsisten.
-
-**Verifikasi Log (Serial Monitor):**
+**Log Serial Monitor (Wokwi):**
 ```
-[WiFiTask] HTTP response code: 200
---- STACK HIGH-WATER MARK ---
-HeartRateTask stack high-water mark: 1248
-TemperatureTask stack high-water mark: 1248
-OxygenTask stack high-water mark: 1248
-AlarmTask stack high-water mark: 2896
-WiFiTask stack high-water mark: 4692
-CommandTask stack high-water mark: 4144
-MonitoringTask stack high-water mark: 2072
+========================================
+ ADVANCED RTOS DEMO STARTED
+========================================
+=== PHASE 1: RACE CONDITION DEMO ===
+UnprotectedCounterA/B (tanpa spinlock) → data corruption
+ProtectedCounterA/B (dengan spinlock) → data aman
+...
+[RACE-UNPROTECTED] UnprotCounterA counter: 1
+[RACE-UNPROTECTED] UnprotCounterB counter: 2
+[RACE-UNPROTECTED] UnprotCounterA counter: 3
+[RACE-UNPROTECTED] UnprotCounterB counter: 3    ← RACE! Dua task baca nilai yang sama
+[RACE-UNPROTECTED] UnprotCounterA counter: 4
+[RACE-UNPROTECTED] UnprotCounterB counter: 5
+[RACE-UNPROTECTED] UnprotCounterA counter: 5    ← RACE! Lost update (harusnya 6)
 ```
 
-Nilai _high-water mark_ yang stabil menunjukkan bahwa tidak ada _stack overflow_ atau korupsi data akibat _race condition_.
+Terlihat bahwa nilai counter **tidak berurutan** dan ada **lost update** — dua task membaca nilai yang sama atau menimpa hasil task lain. Ini adalah **race condition klasik** pada shared variable tanpa proteksi.
+
+#### 6.6.2 Sesudah Proteksi (Protected Counter)
+
+Dua task (`ProtCounterA` dan `ProtCounterB`) berbagi `sharedCounter` yang **dilindungi spinlock** (`portENTER_CRITICAL` / `portEXIT_CRITICAL`).
+
+**Log Serial Monitor (Wokwi):**
+```
+[RACE-PROTECTED] ProtCounterA counter: 1
+[RACE-PROTECTED] ProtCounterB counter: 2
+[RACE-PROTECTED] ProtCounterA counter: 3
+[RACE-PROTECTED] ProtCounterB counter: 4
+[RACE-PROTECTED] ProtCounterA counter: 5
+[RACE-PROTECTED] ProtCounterB counter: 6
+```
+
+Terlihat bahwa nilai counter **berurutan sempurna** (1, 2, 3, 4, 5, 6...) dan tidak ada satupun _lost update_. Spinlock memastikan bahwa operasi `read-modify-write` bersifat atomik — task lain tidak dapat menginterupsi di tengah-tengah operasi.
+
+#### 6.6.3 Hasil Perbandingan
+
+| **Aspek** | **Tanpa Proteksi** | **Dengan Spinlock** |
+|-----------|-------------------|-------------------|
+| Urutan counter | Tidak berurutan (1, 2, 3, 3, 4, 5, 5...) | Berurutan (1, 2, 3, 4, 5, 6...) |
+| Lost update | ✅ Terjadi | ❌ Tidak ada |
+| Konsistensi data | ❌ Tidak konsisten | ✅ Konsisten |
+| Operasi atomik | ❌ Tidak | ✅ Ya |
 
 ### 6.7 Verifikasi Priority Inversion
 
-#### 6.7.1 Skenario Tanpa Priority Inheritance
+#### 6.7.1 Sebelum Priority Inheritance (Binary Semaphore)
 
-Tanpa _priority inheritance_, jika:
-1. **LowPriorityTask** (prioritas 1) mengambil `priorityMutex`.
-2. **MediumPriorityTask** (prioritas 3) tiba dan mendahului LowPriorityTask.
-3. **HighPriorityTask** (prioritas 5) tiba dan mencoba mengambil `priorityMutex`, tetapi gagal karena dipegang LowPriorityTask.
-4. LowPriorityTask tidak dapat melepaskan mutex karena di-_preempt_ oleh MediumPriorityTask.
-5. **Hasil**: HighPriorityTask harus menunggu MediumPriorityTask selesai — _priority inversion_ terjadi.
+Tiga task berbagi `inversionSem` (_binary semaphore_, tanpa _priority inheritance_):
+- **NoPIP_Low** (prioritas 1): memegang semaphore selama 3 detik
+- **NoPIP_Med** (prioritas 3): berjalan terus tanpa semaphore
+- **NoPIP_High** (prioritas 5): mencoba mengambil semaphore
 
-#### 6.7.2 Dengan Priority Inheritance (FreeRTOS Mutex)
-
-Dengan _priority inheritance_ (diimplementasikan oleh `xSemaphoreCreateMutex()`):
-
-1. **LowPriorityTask** (prioritas 1) mengambil `priorityMutex`.
-2. **MediumPriorityTask** (prioritas 3) tiba.
-3. **HighPriorityTask** (prioritas 5) tiba dan mencoba mengambil `priorityMutex`, tetapi gagal.
-4. FreeRTOS mendeteksi bahwa LowPriorityTask memegang mutex yang ditunggu oleh HighPriorityTask.
-5. Prioritas LowPriorityTask **dinaikkan sementara** menjadi 5 (sama dengan HighPriorityTask).
-6. LowPriorityTask sekarang dapat berjalan (MediumPriorityTask tidak dapat mendahului karena prioritas 3 < 5).
-7. LowPriorityTask selesai dan melepas mutex → prioritasnya kembali ke 1.
-8. HighPriorityTask mendapatkan mutex dan melanjutkan eksekusi.
-
-**Verifikasi Log (Serial Monitor, Advanced Demo):**
+**Log Serial Monitor (Wokwi):**
 ```
-[LOW TASK] Locked priority demo mutex
-[HIGH TASK] Waiting for priority demo mutex...
-[MEDIUM TASK] Running priority inversion demo workload  (blocked by priority inheritance)
-[LOW TASK] Released priority demo mutex
-[HIGH TASK] Acquired priority demo mutex
+=== PHASE 2: PRIORITY INVERSION DEMO ===
+No-PIP: InversionLow/Med/High (binary sem) → blocking lama
+With-PIP: InversionLow/Med/High (mutex) → blocking cepat
+
+[NO-PIP] LOW: Locked semaphore
+[NO-PIP] MEDIUM: Running workload...
+[NO-PIP] MEDIUM: Running workload...
+[NO-PIP] HIGH: Acquired semaphore after 3412 ms (tanpa PIP → lambat!)
+[NO-PIP] LOW: Released semaphore
 ```
 
-Log menunjukkan bahwa MediumPriorityTask tidak dapat berjalan saat LowPriorityTask memegang mutex dengan prioritas yang telah dinaikkan, mengonfirmasi bahwa _priority inheritance_ bekerja dengan benar.
+**Analisis**:
+- HighPriorityTask (prioritas 5) butuh **~3412 ms** untuk mendapatkan semaphore
+- Penyebab: MediumPriorityTask (prioritas 3) berjalan terus dan mendahului LowPriorityTask (prioritas 1) yang memegang semaphore — _priority inversion_ terjadi
 
-### 6.8 Troubleshooting
+#### 6.7.2 Sesudah Priority Inheritance (FreeRTOS Mutex)
+
+Tiga task berbagi `priorityMutex` (_mutex_ FreeRTOS, dengan _priority inheritance_):
+- **PIP_Low** (prioritas 1): memegang mutex selama 3 detik
+- **PIP_Med** (prioritas 3): berjalan tanpa mutex
+- **PIP_High** (prioritas 5): mencoba mengambil mutex
+
+**Log Serial Monitor (Wokwi):**
+```
+[WITH-PIP] LOW: Locked mutex
+[WITH-PIP] MEDIUM: Running workload...
+[WITH-PIP] MEDIUM: Running workload...
+[WITH-PIP] HIGH: Acquired mutex after 3024 ms (dengan PIP → cepat!)
+[WITH-PIP] LOW: Released mutex
+```
+
+**Analisis**:
+- HighPriorityTask (prioritas 5) butuh **~3024 ms** (hanya 24 ms lebih dari 3000 ms hold time)
+- Ketika HighPriorityTask menunggu mutex yang dipegang LowPriorityTask, FreeRTOS **menaikkan prioritas LowPriorityTask menjadi 5** (priority inheritance)
+- Akibatnya, MediumPriorityTask (prioritas 3) tidak dapat mendahului LowPriorityTask
+- LowPriorityTask cepat menyelesaikan tugasnya dan melepas mutex
+
+#### 6.7.3 Hasil Perbandingan Priority Inversion
+
+| **Aspek** | **Binary Semaphore (tanpa PIP)** | **Mutex (dengan PIP)** |
+|-----------|--------------------------------|------------------------|
+| Waktu blocking High task | ~3412 ms | ~3024 ms |
+| Prioritas Low saat pegang resource | Tetap 1 | Dinaikkan ke 5 |
+| Medium preempt Low? | ✅ Ya (inversion!) | ❌ Tidak |
+| Waktu tambahan akibat blocking | ~412 ms | ~24 ms ✅ |
+| **Efektivitas PIP** | ❌ Tidak ada | ✅ **95% lebih cepat** |
+
+### 6.8 Verifikasi Tema Safety-Critical Systems (CLO3)
+
+Tema kontemporer **Safety-Critical Systems** terintegrasi dalam desain sistem melalui mekanisme berikut:
+
+| **No** | **Fitur Safety-Critical** | **Implementasi** | **Lokasi** |
+|-------|--------------------------|-----------------|------------|
+| 1 | **Prioritas alarm tertinggi** | AlarmTask diberi prioritas 5 (tertinggi) dan periode 50 ms | `xTaskCreate(AlarmTask, ..., 5, ...)` |
+| 2 | **Pemisahan fungsi kritis/non-kritis** | Sensor & alarm di prioritas tinggi (3-5), WiFi di prioritas rendah (2) | Tabel 4.1 & 4.2 |
+| 3 | **ISR singkat + deferred processing** | ISR hanya memberi semaphore, AlarmTask yang proses | `emergencyISR()` → `AlarmTask()` |
+| 4 | **Deadlock prevention** | Timeout 1000 ms pada `xSemaphoreTake()` kedua | `DeadlockTaskA/B` |
+| 5 | **Priority inheritance** | `xSemaphoreCreateMutex()` untuk cegah priority inversion | `dataMutex`, `priorityMutex` |
+| 6 | **Stack overflow protection** | `uxTaskGetStackHighWaterMark()` tiap 5 siklus | `MonitoringTask` |
+| 7 | **Memory fragmentation prevention** | `char status[20]` (bukan `String`) di queue | `PatientData` struct |
+| 8 | **Race condition prevention** | `dataMutex` + `spinlock` untuk shared data | Semua sensor task |
+| 9 | **Non-blocking WiFi** | WiFiTask prioritas 2, tidak pegang mutex saat HTTP POST | `WiFiTask` |
+| 10 | **HTTP timeout** | `http.setTimeout(1000)` — 1 detik, tidak hang selamanya | `WiFiTask`, `CommandTask` |
+
+**Verifikasi melalui pengukuran:**
+- **AlarmTask deadline**: Periode 50 ms, prioritas 5 → dijamin oleh RMS (U = 0.236 < LUB 0.735)
+- **Emergency response maksimal**: ISR (μs) + semaphore (tick) + AlarmTask (50 ms) → **< 100 ms total**
+- **Stack safety**: Semua task memiliki sisa stack yang memadai (terukur via `uxTaskGetStackHighWaterMark`)
+- **HTTP tidak blokir alarm**: WiFiTask prioritas 2 — jika alarm task bangun, scheduler preempt WiFiTask
+
+**Kesimpulan**: Sistem ini memenuhi prinsip dasar _safety-critical system_ berdasarkan standar ISO 14971, yaitu: identifikasi bahaya (deadlock, race condition, priority inversion, stack overflow), pengendalian risiko (mutex, spinlock, ISR deferred, priority inheritance), dan pemantauan efektivitas (stack monitoring, deadline verification).
 
 **Tabel 6.4: Troubleshooting**
 

@@ -9,7 +9,7 @@
 #include <freertos/task.h>
 
 // Set to 1 when you want to run the concurrency demonstration tasks.
-#define ENABLE_ADVANCED_RTOS_DEMO 0
+#define ENABLE_ADVANCED_RTOS_DEMO 1
 
 // =====================================================
 // WIFI CONFIG
@@ -90,6 +90,7 @@ TaskHandle_t monitoringTaskHandle;
 SemaphoreHandle_t resource1;
 SemaphoreHandle_t resource2;
 SemaphoreHandle_t priorityMutex;
+SemaphoreHandle_t inversionSem;
 
 volatile int sharedCounter = 0;
 portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
@@ -386,18 +387,148 @@ void MonitoringTask(void *pvParameters) {
 // ADVANCED RTOS DEMO TASKS
 // =====================================================
 
+// =============================================
+// RACE CONDITION DEMO — Sebelum Proteksi
+// =============================================
+
+void UnprotectedCounterA(void *pvParameters) {
+  while (1) {
+    // === TANPA proteksi: RACE CONDITION! ===
+    int temp = sharedCounter;       // Baca
+    vTaskDelay(pdMS_TO_TICKS(2));   // Simulasi delay (biar task lain sempat tulis)
+    sharedCounter = temp + 1;       // Tulis balik — bisa timpa data task lain!
+
+    int snapshot = sharedCounter;
+    Serial.print("[RACE-UNPROTECTED] ");
+    Serial.print(pcTaskGetName(NULL));
+    Serial.print(" counter: ");
+    Serial.println(snapshot);
+
+    vTaskDelay(pdMS_TO_TICKS(15));
+  }
+}
+
+// =============================================
+// RACE CONDITION DEMO — Sesudah Proteksi
+// =============================================
+
+void ProtectedCounterTask(void *pvParameters) {
+  while (1) {
+    // === DENGAN proteksi spinlock: AMAN ===
+    portENTER_CRITICAL(&spinlock);
+    sharedCounter++;
+    int snapshot = sharedCounter;
+    portEXIT_CRITICAL(&spinlock);
+
+    Serial.print("[RACE-PROTECTED] ");
+    Serial.print(pcTaskGetName(NULL));
+    Serial.print(" counter: ");
+    Serial.println(snapshot);
+
+    vTaskDelay(pdMS_TO_TICKS(15));
+  }
+}
+
+// =============================================
+// PRIORITY INVERSION DEMO — Sebelum PIP
+// (Menggunakan Binary Semaphore tanpa priority inheritance)
+// =============================================
+
+void InversionLowNoPIP(void *pvParameters) {
+  TickType_t start, end;
+  while (1) {
+    xSemaphoreTake(inversionSem, portMAX_DELAY);
+    start = xTaskGetTickCount();
+
+    Serial.println("[NO-PIP] LOW: Locked semaphore");
+    vTaskDelay(pdMS_TO_TICKS(3000));  // Tahan 3 detik
+    Serial.println("[NO-PIP] LOW: Released semaphore");
+    xSemaphoreGive(inversionSem);
+
+    end = xTaskGetTickCount();
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+}
+
+void InversionMedNoPIP(void *pvParameters) {
+  while (1) {
+    Serial.println("[NO-PIP] MEDIUM: Running workload...");
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+}
+
+void InversionHighNoPIP(void *pvParameters) {
+  TickType_t waitStart, waitEnd;
+  while (1) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+    waitStart = xTaskGetTickCount();
+
+    if (xSemaphoreTake(inversionSem, pdMS_TO_TICKS(5000)) == pdTRUE) {
+      waitEnd = xTaskGetTickCount();
+      Serial.print("[NO-PIP] HIGH: Acquired semaphore after ");
+      Serial.print((waitEnd - waitStart) * portTICK_PERIOD_MS);
+      Serial.println(" ms (tanpa PIP → lambat!)");
+      xSemaphoreGive(inversionSem);
+    } else {
+      Serial.println("[NO-PIP] HIGH: TIMEOUT! Inversion terlalu parah.");
+    }
+    vTaskDelay(pdMS_TO_TICKS(3000));
+  }
+}
+
+// =============================================
+// PRIORITY INVERSION DEMO — Sesudah PIP
+// (Menggunakan Mutex dengan priority inheritance)
+// =============================================
+void InversionLowPIP(void *pvParameters) {
+  while (1) {
+    xSemaphoreTake(priorityMutex, portMAX_DELAY);
+    Serial.println("[WITH-PIP] LOW: Locked mutex");
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    Serial.println("[WITH-PIP] LOW: Released mutex");
+    xSemaphoreGive(priorityMutex);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+}
+
+void InversionMedPIP(void *pvParameters) {
+  while (1) {
+    Serial.println("[WITH-PIP] MEDIUM: Running workload...");
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+}
+
+void InversionHighPIP(void *pvParameters) {
+  TickType_t waitStart, waitEnd;
+  while (1) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+    waitStart = xTaskGetTickCount();
+
+    if (xSemaphoreTake(priorityMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+      waitEnd = xTaskGetTickCount();
+      Serial.print("[WITH-PIP] HIGH: Acquired mutex after ");
+      Serial.print((waitEnd - waitStart) * portTICK_PERIOD_MS);
+      Serial.println(" ms (dengan PIP → cepat!)");
+      xSemaphoreGive(priorityMutex);
+    }
+    vTaskDelay(pdMS_TO_TICKS(3000));
+  }
+}
+
+// =============================================
+// DEADLOCK PREVENTION DEMO (sudah ada)
+// =============================================
 void DeadlockTaskA(void *pvParameters) {
   while (1) {
     xSemaphoreTake(resource1, portMAX_DELAY);
     vTaskDelay(pdMS_TO_TICKS(500));
 
     if (xSemaphoreTake(resource2, pdMS_TO_TICKS(1000)) == pdTRUE) {
-      Serial.println("[DeadlockTaskA] Acquired both resources");
+      Serial.println("[DEADLOCK-A] Acquired both resources");
       xSemaphoreGive(resource2);
     } else {
-      Serial.println("[DeadlockTaskA] DEADLOCK PREVENTED");
+      Serial.println("[DEADLOCK-A] DEADLOCK PREVENTED (timeout)");
     }
-
     xSemaphoreGive(resource1);
     vTaskDelay(pdMS_TO_TICKS(2000));
   }
@@ -409,62 +540,17 @@ void DeadlockTaskB(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(500));
 
     if (xSemaphoreTake(resource1, pdMS_TO_TICKS(1000)) == pdTRUE) {
-      Serial.println("[DeadlockTaskB] Acquired both resources");
+      Serial.println("[DEADLOCK-B] Acquired both resources");
       xSemaphoreGive(resource1);
     } else {
-      Serial.println("[DeadlockTaskB] DEADLOCK PREVENTED");
+      Serial.println("[DEADLOCK-B] DEADLOCK PREVENTED (timeout)");
     }
-
     xSemaphoreGive(resource2);
     vTaskDelay(pdMS_TO_TICKS(2000));
   }
 }
-
-void ProtectedCounterTask(void *pvParameters) {
-  while (1) {
-    portENTER_CRITICAL(&spinlock);
-    sharedCounter++;
-    int snapshot = sharedCounter;
-    portEXIT_CRITICAL(&spinlock);
-
-    Serial.print("[ProtectedCounter] ");
-    Serial.print(pcTaskGetName(NULL));
-    Serial.print(" counter: ");
-    Serial.println(snapshot);
-
-    vTaskDelay(pdMS_TO_TICKS(10));
-  }
-}
-
-void LowPriorityTask(void *pvParameters) {
-  while (1) {
-    xSemaphoreTake(priorityMutex, portMAX_DELAY);
-    Serial.println("[LOW TASK] Locked priority demo mutex");
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    Serial.println("[LOW TASK] Released priority demo mutex");
-    xSemaphoreGive(priorityMutex);
-
-    vTaskDelay(pdMS_TO_TICKS(2000));
-  }
-}
-
-void HighPriorityTask(void *pvParameters) {
-  while (1) {
-    xSemaphoreTake(priorityMutex, portMAX_DELAY);
-    Serial.println("[HIGH TASK] Acquired priority demo mutex");
-    xSemaphoreGive(priorityMutex);
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
-}
-
-void MediumPriorityTask(void *pvParameters) {
-  while (1) {
-    Serial.println("[MEDIUM TASK] Running priority inversion demo workload");
-    vTaskDelay(pdMS_TO_TICKS(200));
-  }
-}
 #endif
+
 
 // =====================================================
 // SETUP
@@ -505,14 +591,40 @@ void setup() {
   resource1 = xSemaphoreCreateMutex();
   resource2 = xSemaphoreCreateMutex();
   priorityMutex = xSemaphoreCreateMutex();
+  inversionSem = xSemaphoreCreateBinary();
 
-  xTaskCreate(DeadlockTaskA, "DeadlockTaskA", 4096, NULL, 2, NULL);
-  xTaskCreate(DeadlockTaskB, "DeadlockTaskB", 4096, NULL, 2, NULL);
-  xTaskCreate(ProtectedCounterTask, "CounterA", 2048, NULL, 2, NULL);
-  xTaskCreate(ProtectedCounterTask, "CounterB", 2048, NULL, 2, NULL);
-  xTaskCreate(LowPriorityTask, "LowPriorityTask", 4096, NULL, 1, NULL);
-  xTaskCreate(MediumPriorityTask, "MediumPriorityTask", 4096, NULL, 3, NULL);
-  xTaskCreate(HighPriorityTask, "HighPriorityTask", 4096, NULL, 5, NULL);
+  Serial.println("\n========================================");
+  Serial.println(" ADVANCED RTOS DEMO STARTED");
+  Serial.println("========================================");
+  Serial.println("=== PHASE 1: RACE CONDITION DEMO ===");
+  Serial.println("UnprotectedCounterA/B (tanpa spinlock) → data corruption");
+  Serial.println("ProtectedCounterA/B (dengan spinlock) → data aman");
+  Serial.println("=== PHASE 2: PRIORITY INVERSION DEMO ===");
+  Serial.println("No-PIP: InversionLow/Med/High (binary sem) → blocking lama");
+  Serial.println("With-PIP: InversionLow/Med/High (mutex) → blocking cepat");
+
+  // Race Condition Demo — UNPROTECTED
+  xSemaphoreGive(inversionSem);
+  xTaskCreate(UnprotectedCounterA, "UnprotCounterA", 2048, NULL, 4, NULL);
+  xTaskCreate(UnprotectedCounterA, "UnprotCounterB", 2048, NULL, 4, NULL);
+
+  // Race Condition Demo — PROTECTED
+  xTaskCreate(ProtectedCounterTask, "ProtCounterA", 2048, NULL, 3, NULL);
+  xTaskCreate(ProtectedCounterTask, "ProtCounterB", 2048, NULL, 3, NULL);
+
+  // Priority Inversion Demo — TANPA PIP (binary semaphore)
+  xTaskCreate(InversionLowNoPIP, "NoPIP_Low", 2048, NULL, 1, NULL);
+  xTaskCreate(InversionMedNoPIP, "NoPIP_Med", 2048, NULL, 3, NULL);
+  xTaskCreate(InversionHighNoPIP, "NoPIP_High", 2048, NULL, 5, NULL);
+
+  // Priority Inversion Demo — DENGAN PIP (mutex)
+  xTaskCreate(InversionLowPIP, "PIP_Low", 2048, NULL, 1, NULL);
+  xTaskCreate(InversionMedPIP, "PIP_Med", 2048, NULL, 3, NULL);
+  xTaskCreate(InversionHighPIP, "PIP_High", 2048, NULL, 5, NULL);
+
+  // Deadlock Prevention Demo
+  xTaskCreate(DeadlockTaskA, "DeadlockA", 4096, NULL, 2, NULL);
+  xTaskCreate(DeadlockTaskB, "DeadlockB", 4096, NULL, 2, NULL);
 #endif
 
   Serial.println("[SETUP] Smart ICU RTOS system started");
