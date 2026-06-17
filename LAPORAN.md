@@ -1567,21 +1567,42 @@ Semua _endpoint_ mengembalikan kode status HTTP yang sesuai (200 untuk sukses, 4
 Dua task (`UnprotCounterA` dan `UnprotCounterB`) berbagi `sharedCounter` **tanpa proteksi**. Setiap task membaca, menunda 2 ms (memberi kesempatan task lain menulis), lalu menulis balik.
 
 **Log Serial Monitor (Wokwi):**
-```
+```text
 ========================================
  ADVANCED RTOS DEMO STARTED
 ========================================
 === PHASE 1: RACE CONDITION DEMO ===
-UnprotectedCounterA/B (tanpa spinlock) → data corruption
-ProtectedCounterA/B (dengan spinlock) → data aman
 ...
-[RACE-UNPROTECTED] UnprotCounterA counter: 1
-[RACE-UNPROTECTED] UnprotCounterB counter: 2
-[RACE-UNPROTECTED] UnprotCounterA counter: 3
-[RACE-UNPROTECTED] UnprotCounterB counter: 3    ← RACE! Dua task baca nilai yang sama
-[RACE-UNPROTECTED] UnprotCounterA counter: 4
-[RACE-UNPROTECTED] UnprotCounterB counter: 5
-[RACE-UNPROTECTED] UnprotCounterA counter: 5    ← RACE! Lost update (harusnya 6)
+
+[RACE-UNPROTECTED] UnprotCounterA counter: 699
+[RACE-UNPROTECTED] UnprotCounterB counter: 699    ← RACE! Duplikat!
+[RACE-PROTECTED] ProtCounterA counter: 700
+[RACE-PROTECTED] ProtCounterB counter: 701        ← Urut ✅
+
+[RACE-UNPROTECTED] UnprotCounterA counter: 702
+[RACE-UNPROTECTED] UnprotCounterB counter: 702    ← RACE! Duplikat!
+[RACE-PROTECTED] ProtCounterA counter: 703
+[RACE-PROTECTED] ProtCounterB counter: 704        ← Urut ✅
+
+...
+
+[RACE-UNPROTECTED] UnprotCounterA counter: 709
+[RACE-UNPROTECTED] UnprotCounterB counter: 709    ← RACE!
+[RACE-UNPROTECTED] UnprotCounterA counter: 710
+[RACE-UNPROTECTED] UnprotCounterB counter: 710    ← RACE!
+[RACE-PROTECTED] ProtCounterA counter: 711         ← Urut ✅
+[RACE-PROTECTED] ProtCounterB counter: 712
+
+...
+
+[RACE-UNPROTECTED] UnprotCounterB counter: 793
+[RACE-UNPROTECTED] UnprotCounterA counter: 793    ← RACE!
+[RACE-UNPROTECTED] UnprotCounterB counter: 793    ← RACE! 3x lipat!
+[RACE-PROTECTED] ProtCounterB counter: 794         ← Urut ✅
+[RACE-PROTECTED] ProtCounterA counter: 795
+
+[DEADLOCK-A] DEADLOCK PREVENTED (timeout)
+[DEADLOCK-B] DEADLOCK PREVENTED (timeout)
 ```
 
 Terlihat bahwa nilai counter **tidak berurutan** dan ada **lost update** — dua task membaca nilai yang sama atau menimpa hasil task lain. Ini adalah **race condition klasik** pada shared variable tanpa proteksi.
