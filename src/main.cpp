@@ -9,7 +9,7 @@
 #include <freertos/task.h>
 
 // Set to 1 when you want to run the concurrency demonstration tasks.
-#define ENABLE_ADVANCED_RTOS_DEMO 1
+#define ENABLE_ADVANCED_RTOS_DEMO 0
 
 // =====================================================
 // WIFI CONFIG
