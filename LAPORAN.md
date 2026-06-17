@@ -1642,7 +1642,7 @@ Tiga task berbagi `inversionSem` (_binary semaphore_, tanpa _priority inheritanc
 - **NoPIP_High** (prioritas 5): mencoba mengambil semaphore
 
 **Log Serial Monitor (Wokwi):**
-```
+```text
 === PHASE 2: PRIORITY INVERSION DEMO ===
 No-PIP: InversionLow/Med/High (binary sem) → blocking lama
 With-PIP: InversionLow/Med/High (mutex) → blocking cepat
@@ -1650,13 +1650,13 @@ With-PIP: InversionLow/Med/High (mutex) → blocking cepat
 [NO-PIP] LOW: Locked semaphore
 [NO-PIP] MEDIUM: Running workload...
 [NO-PIP] MEDIUM: Running workload...
-[NO-PIP] HIGH: Acquired semaphore after 3412 ms (tanpa PIP → lambat!)
 [NO-PIP] LOW: Released semaphore
+[NO-PIP] HIGH: Acquired semaphore after 2541 ms (tanpa PIP → lambat!)
+[WITH-PIP] LOW: Locked mutex
+[WITH-PIP] MEDIUM: Running workload...
+[WITH-PIP] LOW: Released mutex
+[WITH-PIP] HIGH: Acquired mutex after 2551 ms (dengan PIP → cepat!)
 ```
-
-**Analisis**:
-- HighPriorityTask (prioritas 5) butuh **~3412 ms** untuk mendapatkan semaphore
-- Penyebab: MediumPriorityTask (prioritas 3) berjalan terus dan mendahului LowPriorityTask (prioritas 1) yang memegang semaphore — _priority inversion_ terjadi
 
 #### 6.7.2 Sesudah Priority Inheritance (FreeRTOS Mutex)
 
@@ -1666,29 +1666,27 @@ Tiga task berbagi `priorityMutex` (_mutex_ FreeRTOS, dengan _priority inheritanc
 - **PIP_High** (prioritas 5): mencoba mengambil mutex
 
 **Log Serial Monitor (Wokwi):**
-```
+```text
 [WITH-PIP] LOW: Locked mutex
 [WITH-PIP] MEDIUM: Running workload...
-[WITH-PIP] MEDIUM: Running workload...
-[WITH-PIP] HIGH: Acquired mutex after 3024 ms (dengan PIP → cepat!)
 [WITH-PIP] LOW: Released mutex
+[WITH-PIP] HIGH: Acquired mutex after 2551 ms (dengan PIP → cepat!)
 ```
 
 **Analisis**:
-- HighPriorityTask (prioritas 5) butuh **~3024 ms** (hanya 24 ms lebih dari 3000 ms hold time)
-- Ketika HighPriorityTask menunggu mutex yang dipegang LowPriorityTask, FreeRTOS **menaikkan prioritas LowPriorityTask menjadi 5** (priority inheritance)
-- Akibatnya, MediumPriorityTask (prioritas 3) tidak dapat mendahului LowPriorityTask
-- LowPriorityTask cepat menyelesaikan tugasnya dan melepas mutex
+- HighPriorityTask (prioritas 5) butuh **~2551 ms** untuk mendapatkan mutex
+- Dengan mutex FreeRTOS yang mendukung priority inheritance, prioritas LowPriorityTask dinaikkan saat diminta oleh HighPriorityTask
+- Namun dalam pengujian ini, MediumPriorityTask tidak terlalu mengganggu karena Wokwi berjalan pada simulator single-core, dan priority inheritance hanya aktif jika Medium benar-benar mem-preempt Low
 
 #### 6.7.3 Hasil Perbandingan Priority Inversion
 
 | **Aspek** | **Binary Semaphore (tanpa PIP)** | **Mutex (dengan PIP)** |
 |-----------|--------------------------------|------------------------|
-| Waktu blocking High task | ~3412 ms | ~3024 ms |
+| Waktu blocking High task | ~2541 ms | ~2551 ms |
 | Prioritas Low saat pegang resource | Tetap 1 | Dinaikkan ke 5 |
-| Medium preempt Low? | ✅ Ya (inversion!) | ❌ Tidak |
-| Waktu tambahan akibat blocking | ~412 ms | ~24 ms ✅ |
-| **Efektivitas PIP** | ❌ Tidak ada | ✅ **95% lebih cepat** |
+| Medium dapat preempt Low? | Tergantung timing scheduler | Tergantung timing scheduler |
+| Priority inheritance aktif? | ❌ Tidak didukung | ✅ Didukung FreeRTOS mutex |
+| **Mekanisme proteksi** | Tidak ada | **Priority Inheritance Protocol** |
 
 ### 6.8 Verifikasi Tema Safety-Critical Systems (CLO3)
 
