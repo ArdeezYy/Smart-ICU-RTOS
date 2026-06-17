@@ -6,10 +6,10 @@
 **LAPORAN TUGAS BESAR**
 
 Mata Kuliah: Sistem Operasi Real-Time (RTOS)
-Kode Mata Kuliah: CLO3 — Safety-Critical Systems
+
 
 **Dosen Pengampu:**
-[ Nama Dosen ]
+ MUHAMMAD FARIS RURIAWAN, S.T., M.T.
 
 ---
 
@@ -18,15 +18,15 @@ Kode Mata Kuliah: CLO3 — Safety-Critical Systems
 | No | Nama Lengkap | NIM |
 |----|-------------|-----|
 | 1 | Nicholai Dandy Nainggolan | 101032330023 |
-| 2 | Muhammad Deva Valery | 10103233[NNNN] |
+| 2 | Muhammad Deva Valery | 101032300115 |
 | 3 | Ardika Putra Hadian | 101032300240 |
-| 4 | [ Nama Lengkap ] | [ NIM ] |
+| 4 | [ Nama Lengkap ] | 101032300115 |
 
 ---
 
-**Program Studi Teknik Informatika**
-**Fakultas Ilmu Komputer**
-**Universitas [ Nama Universitas ]**
+**Program S1 Teknik Komputer**
+**Fakultas Teknik Elektro**
+**Telkom University**
 **Semester Genap 2025/2026**
 
 ---
