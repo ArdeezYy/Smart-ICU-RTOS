@@ -19,7 +19,7 @@ const char *ssid = "Wokwi-GUEST";
 const char *password = "";
 
 // Change this to your local Flask server IP or an ngrok URL.
-const char *serverBaseUrl = "http://10.20.224.112:5000";
+const char *serverBaseUrl = "http://trunks-evidence-gigantic.ngrok-free.dev";
 
 // =====================================================
 // PIN CONFIG
